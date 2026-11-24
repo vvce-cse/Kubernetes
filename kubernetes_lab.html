@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kubernetes Scaling Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Sora:wght@500;600;700&display=swap">
+<style>
+/* Layout: a lab bench. Lesson notebook on the left, a live simulated cluster with its terminal on the right. */
+:root {
+  --bg: #eef2f8;
+  --surface: #ffffff;
+  --surface-2: #f5f8fc;
+  --ink: #14213d;
+  --muted: #56667f;
+  --line: #d5deeb;
+  --accent: #326ce5;
+  --accent-soft: #e3ecfd;
+  --accent-ink: #ffffff;
+  --v2: #7a4fe0;
+  --v2-soft: #efe8fd;
+  --ok: #12895a;
+  --ok-soft: #e1f4ea;
+  --warn: #a96500;
+  --warn-soft: #fdf0d9;
+  --bad: #c92c45;
+  --bad-soft: #fde6ea;
+  --term-bg: #0e1628;
+  --term-fg: #cfdcf5;
+  --term-dim: #7c8db0;
+  --term-ok: #6fe3a6;
+  --term-cmd: #8fb4ff;
+  --term-warn: #ffc56b;
+  --f-display: "Sora", "Segoe UI", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1220; --surface: #131c2f; --surface-2: #18233a; --ink: #e6edf8; --muted: #9aa9c4; --line: #27354f;
+    --accent: #6593ff; --accent-soft: #1c2b4d; --accent-ink: #0b1220;
+    --v2: #ad90ff; --v2-soft: #2a2150;
+    --ok: #39c98d; --ok-soft: #12321f; --warn: #f0a92c; --warn-soft: #382a0d; --bad: #ff6f84; --bad-soft: #3d1520;
+    --term-bg: #070c18;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1220; --surface: #131c2f; --surface-2: #18233a; --ink: #e6edf8; --muted: #9aa9c4; --line: #27354f;
+  --accent: #6593ff; --accent-soft: #1c2b4d; --accent-ink: #0b1220;
+  --v2: #ad90ff; --v2-soft: #2a2150;
+  --ok: #39c98d; --ok-soft: #12321f; --warn: #f0a92c; --warn-soft: #382a0d; --bad: #ff6f84; --bad-soft: #3d1520;
+  --term-bg: #070c18;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.6 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1440px; margin: 0 auto; display: grid; gap: 18px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: clamp(1.45rem, 2.6vw, 2.1rem); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.3rem; font-weight: 600; }
+h3 { font-size: 1rem; font-weight: 600; }
+p { margin: 0; }
+code, .mono { font-family: var(--f-mono); font-size: 0.86em; }
+:focus-visible { outline: 2.5px solid var(--accent); outline-offset: 2px; }
+.eyebrow { font: 600 11.5px/1.3 var(--f-body); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+
+/* ---------- header ---------- */
+.top { display: grid; gap: 8px; }
+.top .aim { max-width: 80ch; color: var(--muted); }
+.top .aim b { color: var(--ink); font-weight: 600; }
+
+/* ---------- step rail ---------- */
+.rail { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.rail button {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  padding: 7px 12px 7px 8px; border-radius: 999px; font: 500 13px/1 var(--f-body); cursor: pointer;
+}
+.rail button .n {
+  width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface-2); border: 1px solid var(--line); font: 600 11px/1 var(--f-mono); color: var(--muted);
+}
+.rail button.done .n { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+.rail button.cur { border-color: var(--accent); color: var(--ink); background: var(--accent-soft); }
+.rail button.cur .n { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+/* ---------- two-column bench ---------- */
+.bench { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1100px) {
+  .bench { grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr); }
+  .right { position: sticky; top: max(12px, env(safe-area-inset-top, 0px)); max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: thin; }
+}
+
+/* ---------- lesson panel ---------- */
+.lesson { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; display: grid; gap: 16px; min-width: 0; }
+.lesson .head { display: grid; gap: 4px; }
+.lesson .lead { font-size: 1.02rem; }
+.lesson ul, .lesson ol { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
+.callout { border-radius: 10px; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--line); display: grid; gap: 6px; }
+.callout.story { background: var(--accent-soft); border-color: transparent; }
+.callout.watch { background: var(--ok-soft); border-color: transparent; }
+.callout.note { background: var(--warn-soft); border-color: transparent; }
+.callout .t { font: 600 12px/1.3 var(--f-body); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn {
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  border-radius: 9px; padding: 8px 13px; font: 500 13.5px/1.25 var(--f-body); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px; text-align: left;
+}
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.07); }
+.btn.danger { color: var(--bad); border-color: var(--bad); }
+.btn.danger:hover:not(:disabled) { background: var(--bad-soft); }
+.btn.sm { padding: 5px 10px; font-size: 12.5px; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn .mono { font-size: 12.5px; }
+.navrow { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); padding-top: 14px; }
+
+/* code blocks */
+.code { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-2); min-width: 0; }
+.code .bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); font: 600 12px/1.2 var(--f-mono); color: var(--muted); }
+.code pre { margin: 0; padding: 10px 0; overflow-x: auto; font: 12.5px/1.55 var(--f-mono); }
+.code .ln { display: block; padding: 0 12px; white-space: pre; }
+.code .ln.ann { cursor: pointer; text-decoration: underline dotted var(--accent); text-underline-offset: 3px; }
+.code .ln.ann:hover, .code .ln.on { background: var(--accent-soft); }
+.code .k { color: var(--accent); }
+.code .c { color: var(--muted); }
+.code .tip { margin: 0; padding: 10px 12px; border-top: 1px solid var(--line); background: var(--surface); font-size: 13.5px; }
+.code .tip b { font-family: var(--f-mono); font-size: 12px; color: var(--accent); }
+
+table.map { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.map th { text-align: left; font: 600 11.5px/1.3 var(--f-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.map td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.map td:first-child { font-weight: 500; }
+.tbl { overflow-x: auto; }
+
+.calc { font: 13px/1.6 var(--f-mono); padding: 10px 12px; border-radius: 10px; background: var(--surface-2); border: 1px dashed var(--line); }
+.calc b { color: var(--accent); }
+.rangeRow { display: grid; gap: 6px; }
+.rangeRow label { display: flex; justify-content: space-between; font-weight: 500; }
+.rangeRow input { width: 100%; accent-color: var(--accent); }
+.repl { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.repl output { font: 600 1.3rem/1 var(--f-display); min-width: 2ch; text-align: center; font-variant-numeric: tabular-nums; }
+details.qa { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; background: var(--surface-2); }
+details.qa summary { cursor: pointer; font-weight: 600; }
+details.qa p { margin-top: 8px; color: var(--muted); }
+.comp-list { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.comp-list button { text-align: left; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); border-radius: 10px; padding: 10px 12px; cursor: pointer; font: inherit; display: grid; gap: 2px; }
+.comp-list button:hover { border-color: var(--accent); }
+.comp-list button b { font-family: var(--f-mono); font-size: 13px; }
+.comp-list button span { font-size: 13px; color: var(--muted); }
+
+/* ---------- right column: cluster ---------- */
+.right { display: grid; gap: 12px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.stage-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.stage-head .name { display: grid; gap: 2px; }
+.stage-head .name strong { font: 600 15px/1.2 var(--f-mono); }
+.reg { font-size: 12.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tag { font: 600 11.5px/1 var(--f-mono); padding: 4px 7px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); color: var(--ink); }
+.tag.v1 { background: var(--accent-soft); border-color: var(--accent); }
+.tag.v2 { background: var(--v2-soft); border-color: var(--v2); }
+.tag.pop { animation: pop 0.6s ease; }
+@keyframes pop { 0% { transform: scale(0.4); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); border-bottom: 1px solid var(--line); }
+.stat { padding: 9px 12px; display: grid; gap: 1px; border-right: 1px solid var(--line); }
+.stat:last-child { border-right: 0; }
+.stat span { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.stat b { font: 600 1.15rem/1.2 var(--f-display); font-variant-numeric: tabular-nums; }
+.stat.bad b { color: var(--bad); }
+.stat.warn b { color: var(--warn); }
+.stat.ok b { color: var(--ok); }
+
+.stage { position: relative; padding: 14px; display: grid; gap: 14px; }
+#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+.row-top { display: grid; gap: 12px; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.4fr); align-items: stretch; }
+@media (max-width: 640px) { .row-top { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .cp { grid-column: 1 / -1; } }
+.box { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--surface-2); display: grid; gap: 4px; align-content: start; min-width: 0; }
+.box .k { font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.viewers .dev { display: flex; gap: 6px; color: var(--accent); }
+.viewers .dev svg { width: 22px; height: 22px; }
+.viewers b { font: 600 1.2rem/1.2 var(--f-display); font-variant-numeric: tabular-nums; }
+.viewers small, .svc small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.svc { cursor: pointer; text-align: left; font: inherit; color: inherit; }
+.svc b { font: 600 13px/1.3 var(--f-mono); overflow-wrap: anywhere; }
+.svc.off { border-style: dashed; opacity: 0.7; }
+.svc.on { background: var(--accent-soft); border-color: var(--accent); }
+.cp { background: var(--surface); }
+.cp-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); border-radius: 7px; padding: 4px 7px; font: 500 11.5px/1.2 var(--f-mono); cursor: pointer; transition: background 0.25s, border-color 0.25s, color 0.25s; }
+.chip.busy { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.chip.hpa { border-color: var(--v2); }
+.chip.hpa.busy { background: var(--v2); border-color: var(--v2); color: var(--accent-ink); }
+.queue { margin-top: 6px; display: grid; gap: 4px; }
+.queue > span { font-size: 11.5px; color: var(--muted); }
+.qgrid { display: flex; flex-wrap: wrap; gap: 5px; min-height: 0; }
+
+.nodes { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.node { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 9px; display: grid; gap: 6px; align-content: start; min-height: 150px; cursor: pointer; transition: background 0.3s; }
+.node .nh { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+.node .nh b { font: 600 12.5px/1.2 var(--f-mono); }
+.pill { font: 600 10.5px/1 var(--f-body); letter-spacing: 0.04em; text-transform: uppercase; padding: 4px 7px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); }
+.node.down { background: repeating-linear-gradient(135deg, var(--bad-soft) 0 8px, var(--surface) 8px 16px); border-color: var(--bad); }
+.node.down .pill { background: var(--bad); color: var(--accent-ink); }
+.ncap { font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+.pgrid { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.pod {
+  --pc: var(--accent); --pf: var(--accent-soft);
+  width: 50px; height: 50px; border-radius: 9px; border: 1.5px solid var(--pc); background: var(--surface);
+  display: grid; grid-template-rows: auto 1fr auto; padding: 4px 5px 4px; position: relative;
+  font: 600 9.5px/1.15 var(--f-mono); color: var(--ink); transition: opacity 0.6s, transform 0.6s, background 0.3s;
+  animation: podIn 0.35s ease;
+}
+@keyframes podIn { from { transform: scale(0.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.pod.v2 { --pc: var(--v2); --pf: var(--v2-soft); }
+.pod .hits { font-style: normal; font-weight: 400; color: var(--muted); font-size: 9px; align-self: center; }
+.pod .cpu { height: 4px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.pod .cpu > span { display: block; height: 100%; width: 0; background: var(--ok); transition: width 0.6s, background 0.3s; }
+.pod .cpu > span.w { background: var(--warn); }
+.pod .cpu > span.b { background: var(--bad); }
+.pod .ph { position: absolute; top: -4px; right: -4px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--surface); background: var(--muted); }
+.pod.ready { background: var(--pf); }
+.pod.ready .ph { background: var(--ok); }
+.pod.pending { --pc: var(--muted); border-style: dashed; opacity: 0.8; }
+.pod.creating { background: repeating-linear-gradient(135deg, var(--pf) 0 5px, var(--surface) 5px 10px); background-size: 14px 14px; animation: podIn 0.35s ease, stripe 0.8s linear infinite; }
+.pod.creating .ph, .pod.running .ph { background: var(--warn); }
+@keyframes stripe { to { background-position: 14px 0; } }
+.pod.terminating { --pc: var(--bad); opacity: 0.3; transform: scale(0.82); }
+.pod.unknown { --pc: var(--muted); background: var(--surface-2); opacity: 0.55; }
+.pod.unknown::after { content: "?"; position: absolute; inset: 0; display: grid; place-items: center; font: 700 20px/1 var(--f-display); color: var(--muted); }
+.pod.flash { box-shadow: 0 0 0 3px var(--pf); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11.5px; color: var(--muted); padding: 0 2px; }
+.legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; border: 1.5px solid var(--accent); background: var(--accent-soft); vertical-align: -1px; margin-right: 5px; }
+.legend i.v2 { border-color: var(--v2); background: var(--v2-soft); }
+.legend i.pe { border-color: var(--muted); border-style: dashed; background: none; }
+.legend i.dot { border-radius: 50%; border: 0; background: var(--accent); width: 8px; height: 8px; vertical-align: 0; }
+.legend i.dot.f { background: var(--bad); }
+
+.info { padding: 10px 14px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--muted); min-height: 44px; }
+.info b { color: var(--ink); font-family: var(--f-mono); font-size: 12.5px; }
+
+.events { padding: 10px 14px 12px; display: grid; gap: 4px; }
+.events .eh { display: flex; justify-content: space-between; align-items: center; }
+.ev { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 12.5px; }
+.ev .r { font: 600 11px/1.2 var(--f-mono); color: var(--accent); }
+.ev.w .r { color: var(--warn); }
+.ev .tm { font: 11px/1.2 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.ev .m { overflow-wrap: anywhere; color: var(--ink); }
+.ev-empty { font-size: 12.5px; color: var(--muted); }
+
+.term { background: var(--term-bg); color: var(--term-fg); border-radius: 14px; overflow: hidden; border: 1px solid var(--line); }
+.term .tb { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font: 600 12px/1 var(--f-mono); color: var(--term-dim); }
+.term .tb .dots { display: flex; gap: 5px; }
+.term .tb .dots i { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.18); }
+.term .tb button { background: none; border: 1px solid rgba(255,255,255,0.18); color: var(--term-dim); border-radius: 6px; font: 500 11px/1 var(--f-mono); padding: 4px 8px; cursor: pointer; }
+#termBody { margin: 0; padding: 10px 12px 14px; height: 230px; overflow: auto; font: 12px/1.55 var(--f-mono); white-space: pre; }
+#termBody .cmd { color: var(--term-cmd); }
+#termBody .cmd::before { content: "$ "; color: var(--term-ok); }
+#termBody .ok { color: var(--term-ok); }
+#termBody .dim { color: var(--term-dim); }
+#termBody .warn { color: var(--term-warn); }
+
+@media (max-width: 520px) {
+  .lesson { padding: 16px; }
+  .nodes { gap: 6px; }
+  .node { padding: 7px; }
+  .pod { width: 44px; height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <span class="eyebrow">DevOps Laboratory · BCSDL506 · Kubernetes experiment</span>
+    <h1>Container Orchestration and Scaling with Kubernetes</h1>
+    <p class="aim"><b>Aim:</b> Deploy containerized applications onto a Kubernetes cluster using Deployment and Service manifests to manage automated scaling, load balancing, and high availability. The running example is <b>FlixStream</b>, a Netflix-style video streaming site.</p>
+  </header>
+
+  <nav class="rail" id="rail" aria-label="Experiment steps"></nav>
+
+  <div class="bench">
+    <article class="lesson" id="lesson" aria-live="polite"></article>
+
+    <aside class="right">
+      <section class="panel" aria-label="Simulated cluster">
+        <div class="stage-head">
+          <div class="name"><span class="eyebrow">Live cluster · simulated</span><strong>flixstream-prod</strong></div>
+          <div class="reg">Registry <span id="regTags"><span class="tag">empty</span></span></div>
+          <button class="btn sm" data-act="reset" type="button">Reset lab</button>
+        </div>
+        <div class="stats">
+          <div class="stat" id="stDesired"><span>Desired pods</span><b>–</b></div>
+          <div class="stat" id="stReady"><span>Ready pods</span><b>0</b></div>
+          <div class="stat" id="stViewers"><span>Viewers</span><b>0</b></div>
+          <div class="stat" id="stCpu"><span>Avg CPU / pod</span><b>–</b></div>
+          <div class="stat ok" id="stServed"><span>Requests served</span><b>0</b></div>
+          <div class="stat" id="stFailed"><span>Failed</span><b>0</b></div>
+        </div>
+        <div class="stage" id="stage">
+          <canvas id="fx" aria-hidden="true"></canvas>
+          <div class="row-top">
+            <div class="box viewers" id="viewersBox">
+              <span class="k">Viewers</span>
+              <div class="dev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+              </div>
+              <b id="vCount">0</b>
+              <small id="vNote">Nobody can reach the site yet</small>
+            </div>
+            <button class="box svc off" id="svcBox" type="button" data-comp="svc">
+              <span class="k">Service</span>
+              <b>flixstream-svc</b>
+              <small id="svcInfo">Not created yet</small>
+            </button>
+            <div class="box cp" id="cpBox">
+              <span class="k">Control plane</span>
+              <div class="cp-chips">
+                <button class="chip" id="cp-api" data-comp="api" type="button">kube-apiserver</button>
+                <button class="chip" id="cp-etcd" data-comp="etcd" type="button">etcd</button>
+                <button class="chip" id="cp-sched" data-comp="sched" type="button">scheduler</button>
+                <button class="chip" id="cp-ctrl" data-comp="ctrl" type="button">controller-manager</button>
+                <button class="chip hpa" id="cp-hpa" data-comp="hpa" type="button" hidden>HPA</button>
+              </div>
+              <div class="queue" id="queue" hidden><span>Waiting for a node</span><div class="qgrid" id="qgrid"></div></div>
+            </div>
+          </div>
+          <div class="nodes" id="nodes"></div>
+          <div class="legend">
+            <span><i></i>pod v1.0</span><span><i class="v2"></i>pod v1.1</span><span><i class="pe"></i>pending</span>
+            <span><i class="dot"></i>viewer request</span><span><i class="dot f"></i>failed request</span>
+          </div>
+        </div>
+        <div class="info" id="info">Tap any part of the cluster (a node, a pod, the Service, a control-plane chip) to see what it does.</div>
+      </section>
+
+      <section class="panel events" aria-label="Cluster events">
+        <div class="eh"><span class="eyebrow">Events · kubectl get events</span></div>
+        <div id="events"><div class="ev-empty">No events yet.</div></div>
+      </section>
+
+      <section class="term" aria-label="Terminal">
+        <div class="tb"><span class="dots"><i></i><i></i><i></i></span><span>student@devops-lab: ~/flixstream</span><button type="button" data-act="clearTerm">clear</button></div>
+        <pre id="termBody"></pre>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+(() => {
+/* =====================================================================
+   Content
+   ===================================================================== */
+const DOCKERFILE = `# Dockerfile
+FROM nginx:1.27-alpine
+COPY site/ /usr/share/nginx/html/
+EXPOSE 80`;
+
+const INDEX_HTML = `<!-- site/index.html -->
+<h1>FlixStream</h1>
+<p>Now streaming: Season 2 premieres at 9 PM.</p>
+<p>Build 1.0</p>`;
+
+const DEPLOY_YAML = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flixstream-web
+  labels:
+    app: flixstream-web
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: flixstream-web
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: flixstream-web
+    spec:
+      containers:
+        - name: web
+          image: flixstream/web:1.0
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10`;
+
+const DEPLOY_NOTES = {
+  'kind: Deployment': 'A Deployment is the desired state: which image to run and how many copies. Kubernetes keeps reality matching it.',
+  'name: flixstream-web': 'Name of the Deployment. Pods it creates are named flixstream-web-<replicaset>-<random>.',
+  'replicas: 3': 'Run 3 identical copies (pods) of the FlixStream web app. If one dies, a new one is created to get back to 3.',
+  'matchLabels:': 'The Deployment owns every pod carrying the label app=flixstream-web.',
+  'type: RollingUpdate': 'New versions replace old pods gradually instead of all at once (step 8).',
+  'maxSurge: 1': 'During an update, at most 1 extra pod may run above the desired count.',
+  'maxUnavailable: 0': 'During an update, never drop below the desired number of ready pods, so viewers see no downtime.',
+  'labels:': 'Pods get the label app=flixstream-web. The Deployment and the Service both find pods by this label.',
+  'image: flixstream/web:1.0': 'The container image built in step 2. Each node’s kubelet pulls it from the registry.',
+  'containerPort: 80': 'nginx inside the container listens on port 80.',
+  'cpu: 100m': 'Request: each pod asks for 0.1 CPU. The scheduler uses this to fit pods on nodes, and the HPA measures usage against it.',
+  'memory: 128Mi': 'Memory the scheduler reserves for each pod.',
+  'cpu: 250m': 'Limit: the container is throttled if it tries to use more than 0.25 CPU.',
+  'memory: 256Mi': 'Memory limit. Using more gets the container killed and restarted (OOMKilled).',
+  'readinessProbe:': 'Traffic is sent to a pod only after GET / answers. Until then the Service skips it.',
+  'livenessProbe:': 'If GET / keeps failing, the kubelet restarts the container (self-healing inside a pod).'
+};
+
+const SVC_YAML = `apiVersion: v1
+kind: Service
+metadata:
+  name: flixstream-svc
+spec:
+  type: NodePort
+  selector:
+    app: flixstream-web
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080`;
+
+const SVC_NOTES = {
+  'kind: Service': 'A Service gives the pods one stable address (virtual IP + DNS name) and load-balances across them.',
+  'name: flixstream-svc': 'Inside the cluster the app is reachable at http://flixstream-svc.',
+  'type: NodePort': 'Opens port 30080 on every node so browsers outside the cluster can reach it. On a cloud cluster use type: LoadBalancer to get a public IP.',
+  'selector:': 'Send traffic to every Ready pod labelled app=flixstream-web. New pods join automatically, dead pods drop out.',
+  'app: flixstream-web': 'Must match the pod template label in deployment.yaml, otherwise the Service has no endpoints.',
+  '- port: 80': 'Port of the Service itself (its ClusterIP).',
+  'targetPort: 80': 'Port on the pod (containerPort) that traffic is forwarded to.',
+  'nodePort: 30080': 'Open http://<node-ip>:30080 in a browser. Allowed range is 30000–32767.'
+};
+
+const HPA_YAML = `apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: flixstream-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: flixstream-web
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50`;
+
+const HPA_NOTES = {
+  'kind: HorizontalPodAutoscaler': 'The HPA watches a metric and changes the replica count of a Deployment for you.',
+  'scaleTargetRef:': 'Which object to resize: the flixstream-web Deployment.',
+  'minReplicas: 2': 'Never go below 2 pods, even at 3 AM, so one failure never takes the site down.',
+  'maxReplicas: 10': 'Never go above 10 pods. Protects the cluster (and the bill) from runaway scaling.',
+  'name: cpu': 'Scale on CPU usage. This needs metrics-server installed and a CPU request on the container.',
+  'averageUtilization: 50': 'Target: keep average CPU at 50% of each pod’s request (50% of 100m = 50m).'
+};
+
+const COMP = {
+  api: ['kube-apiserver', 'The front door of the cluster. Every kubectl command and every other component talks to it over HTTPS.'],
+  etcd: ['etcd', 'A key-value database that stores the desired and current state of every object (Deployments, pods, Services).'],
+  sched: ['kube-scheduler', 'Chooses a node for each new pod, using the pod’s CPU and memory requests and the free space on each node.'],
+  ctrl: ['kube-controller-manager', 'Runs control loops. The ReplicaSet controller keeps the pod count right; the node controller notices dead nodes.'],
+  hpa: ['HorizontalPodAutoscaler', 'Reads CPU usage from metrics-server and changes the Deployment’s replica count to keep usage near the target.'],
+  svc: ['Service flixstream-svc', 'A stable virtual IP and DNS name. kube-proxy on every node load-balances its traffic across the Ready pods that match its selector.'],
+  node: ['Worker node', 'A machine (VM or server) that runs pods. Its kubelet starts containers and reports health; kube-proxy programs the Service rules.'],
+  pod: ['Pod', 'The smallest unit Kubernetes runs: one or more containers sharing an IP. Pods are disposable and are replaced, never repaired.']
+};
+
+/* =====================================================================
+   Simulation state
+   ===================================================================== */
+const CAP = 5;
+const NODE_NAMES = ['worker-1', 'worker-2', 'worker-3'];
+const RS = { '1.0': '7d9f8c6b5', '1.1': '5c4b7f9d2' };
+const now = () => performance.now();
+let S, pid = 0;
+function fresh() {
+  return {
+    reg: [], dep: null, svc: false, hpa: null, viewers: 0,
+    nodes: NODE_NAMES.map(n => ({ name: n, up: true })),
+    pods: [], served: 0, failed: 0, rr: 0, rolling: false, revs: 0,
+    hpaLow: 0, hpaCalc: null, events: [], ipSeq: 11, t0: now()
+  };
+}
+S = fresh();
+
+const rnd = n => { const c = 'bcdfghjklmnpqrstvwxz2456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };
+const podName = p => `flixstream-web-${RS[p.version]}-${p.hash}`;
+const isReady = p => p.phase === 'Ready';
+const live = () => S.pods.filter(p => p.phase !== 'Terminating');
+const readyPods = () => S.pods.filter(isReady);
+const nodeCount = name => S.pods.filter(p => p.node === name).length;
+const fmt = n => Math.round(n).toLocaleString('en-IN');
+const demand = () => (S.svc ? S.viewers / 1000 * 10 : 0);         // CPU need, in % of one pod's request
+const util = () => { const r = readyPods().length; return r ? demand() / r : 0; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function nextIp(node) { return `10.244.${NODE_NAMES.indexOf(node) + 1}.${S.ipSeq++}`; }
+function newPod(version, phase = 'Pending', node = null) {
+  const p = { id: ++pid, hash: rnd(5), version, node, phase, t: now(), born: now(), hits: 0, ip: null, jit: Math.random() * 8 - 4 };
+  if (node) p.ip = nextIp(node);
+  S.pods.push(p);
+  return p;
+}
+function terminate(p) { if (p.phase !== 'Terminating') { p.phase = 'Terminating'; p.t = now(); } }
+
+/* ---------- events ---------- */
+function evt(type, reason, msg) {
+  S.events.unshift({ type, reason, msg, at: now() });
+  S.events.length = Math.min(S.events.length, 7);
+  renderEvents();
+}
+function renderEvents() {
+  const box = document.getElementById('events');
+  if (!S.events.length) { box.innerHTML = '<div class="ev-empty">No events yet.</div>'; return; }
+  box.innerHTML = S.events.map(e => {
+    const s = Math.max(0, Math.round((now() - e.at) / 1000));
+    return `<div class="ev ${e.type === 'Warning' ? 'w' : ''}"><span class="tm">${s}s</span><span class="r">${e.reason}</span><span class="m">${esc(e.msg)}</span></div>`;
+  }).join('');
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* ---------- terminal ---------- */
+const termEl = document.getElementById('termBody');
+function tline(text, cls) {
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = text + '\n';
+  termEl.appendChild(span);
+  while (termEl.childNodes.length > 400) termEl.removeChild(termEl.firstChild);
+  termEl.scrollTop = termEl.scrollHeight;
+}
+const cmd = c => tline(c, 'cmd');
+const out = (t, cls) => tline(t, cls);
+function table(rows) {
+  const w = rows[0].map((_, i) => Math.max(...rows.map(r => String(r[i]).length)));
+  return rows.map(r => r.map((c, i) => String(c).padEnd(w[i] + 3)).join('').trimEnd()).join('\n');
+}
+function age(t) { const s = Math.max(1, Math.round((now() - t) / 1000)); return s < 60 ? s + 's' : Math.floor(s / 60) + 'm' + (s % 60) + 's'; }
+function termWelcome() {
+  termEl.textContent = '';
+  out('# FlixStream Kubernetes lab. Commands you run from the lesson appear here,', 'dim');
+  out('# exactly as you would type them in a real terminal.', 'dim');
+}
+
+/* ---------- control-plane flash ---------- */
+function flash(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('busy');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('busy'), 650);
+}
+
+/* =====================================================================
+   Controllers (scheduler, kubelet, ReplicaSet/Deployment, HPA)
+   ===================================================================== */
+function tickPods() {
+  for (const p of S.pods) {
+    const el = now() - p.t;
+    if (p.phase === 'Pending') {
+      if (el > 450) {
+        const c = S.nodes.filter(n => n.up && nodeCount(n.name) < CAP).sort((a, b) => nodeCount(a.name) - nodeCount(b.name));
+        if (c.length) {
+          p.node = c[0].name; p.ip = nextIp(p.node); p.phase = 'Creating'; p.t = now();
+          flash('cp-sched');
+          evt('Normal', 'Scheduled', `Assigned ${podName(p)} to ${p.node}`);
+        } else if (!p.warned) {
+          p.warned = true; flash('cp-sched');
+          evt('Warning', 'FailedScheduling', `0/3 nodes are available: Insufficient cpu. ${podName(p)} waits.`);
+        }
+      }
+    } else if (p.phase === 'Creating' && el > 1000) { p.phase = 'Running'; p.t = now(); }
+    else if (p.phase === 'Running' && el > 650) { p.phase = 'Ready'; p.t = now(); }
+    else if (p.phase === 'Terminating' && el > 900) { p.gone = true; }
+    else if (p.phase === 'Unknown' && el > 2400) {
+      p.gone = true;
+      evt('Warning', 'NodeNotReady', `Pod ${podName(p)} on ${p.node} evicted, ReplicaSet will replace it`);
+    }
+  }
+  S.pods = S.pods.filter(p => !p.gone);
+}
+
+function reconcile() {
+  const d = S.dep;
+  if (!d) return;
+  const lv = live();
+  const cur = lv.filter(p => p.version === d.version);
+  const old = lv.filter(p => p.version !== d.version);
+  if (!old.length) {
+    if (S.rolling && cur.filter(isReady).length >= d.replicas) {
+      S.rolling = false;
+      out(`deployment "flixstream-web" successfully rolled out`, 'ok');
+      evt('Normal', 'RolloutComplete', `All ${d.replicas} pods now run flixstream/web:${d.version}`);
+    }
+    if (cur.length < d.replicas) {
+      for (let i = cur.length; i < d.replicas; i++) {
+        const p = newPod(d.version);
+        evt('Normal', 'SuccessfulCreate', `ReplicaSet created pod ${podName(p)}`);
+      }
+      flash('cp-ctrl');
+    } else if (cur.length > d.replicas) {
+      const extra = cur.length - d.replicas;
+      [...cur].sort((a, b) => (isReady(a) - isReady(b)) || (b.born - a.born)).slice(0, extra).forEach(p => {
+        terminate(p);
+        evt('Normal', 'SuccessfulDelete', `ReplicaSet deleted pod ${podName(p)}`);
+      });
+      flash('cp-ctrl');
+    }
+  } else {
+    const curNotReady = cur.filter(p => !isReady(p)).length;
+    const readyTotal = lv.filter(isReady).length;
+    old.filter(p => !isReady(p) && p.phase !== 'Unknown').forEach(terminate);
+    if (cur.length < d.replicas && lv.length < d.replicas + 1 && curNotReady === 0) {
+      const p = newPod(d.version);
+      flash('cp-ctrl');
+      evt('Normal', 'ScalingReplicaSet', `Scaled up replica set flixstream-web-${RS[d.version]} to ${cur.length + 1} (${podName(p)})`);
+    }
+    if (readyTotal > d.replicas) {
+      const o = old.find(isReady);
+      if (o) {
+        terminate(o);
+        flash('cp-ctrl');
+        evt('Normal', 'ScalingReplicaSet', `Scaled down replica set flixstream-web-${RS[o.version]} to ${old.length - 1}`);
+      }
+    }
+  }
+}
+
+function hpaLoop() {
+  if (!S.hpa || !S.dep) return;
+  const r = readyPods().length;
+  if (!r) return;
+  const u = util();
+  const ratio = u / S.hpa.target;
+  const within = Math.abs(ratio - 1) <= 0.1;
+  const raw = Math.ceil(r * ratio);
+  let desired = within ? S.dep.replicas : raw;
+  desired = Math.max(S.hpa.min, Math.min(S.hpa.max, desired));
+  S.hpaCalc = { r, u, raw, desired, within };
+  flash('cp-hpa');
+  if (desired > S.dep.replicas) {
+    S.hpaLow = 0;
+    evt('Normal', 'SuccessfulRescale', `HPA: new size ${desired}; reason: cpu utilization (${Math.round(u)}%) above target`);
+    setReplicas(desired);
+  } else if (desired < S.dep.replicas) {
+    if (++S.hpaLow >= 3) {
+      S.hpaLow = 0;
+      evt('Normal', 'SuccessfulRescale', `HPA: new size ${desired}; reason: all metrics below target`);
+      setReplicas(desired);
+    }
+  } else S.hpaLow = 0;
+}
+function setReplicas(n) { if (S.dep) { S.dep.replicas = n; flash('cp-ctrl'); } }
+
+/* =====================================================================
+   Rendering of the cluster
+   ===================================================================== */
+const nodesEl = document.getElementById('nodes');
+const nodeEls = {};
+NODE_NAMES.forEach(n => {
+  const el = document.createElement('div');
+  el.className = 'node';
+  el.dataset.comp = 'node';
+  el.dataset.node = n;
+  el.innerHTML = `<div class="nh"><b>${n}</b><span class="pill">Ready</span></div><div class="ncap"></div><div class="pgrid"></div>`;
+  nodesEl.appendChild(el);
+  nodeEls[n] = { el, pill: el.querySelector('.pill'), cap: el.querySelector('.ncap'), grid: el.querySelector('.pgrid') };
+});
+const qgrid = document.getElementById('qgrid'), queueEl = document.getElementById('queue');
+const podEls = new Map();
+
+function renderCluster() {
+  S.nodes.forEach(n => {
+    const ne = nodeEls[n.name];
+    ne.el.classList.toggle('down', !n.up);
+    ne.pill.textContent = n.up ? 'Ready' : 'NotReady';
+    ne.cap.textContent = `${nodeCount(n.name)}/${CAP} pods · kubelet · kube-proxy`;
+  });
+  const u = util();
+  const seen = new Set();
+  let queued = 0;
+  for (const p of S.pods) {
+    let el = podEls.get(p.id);
+    if (!el) {
+      el = document.createElement('div');
+      el.dataset.comp = 'pod';
+      el.innerHTML = '<span class="ph"></span><b class="h"></b><i class="hits"></i><span class="cpu"><span></span></span>';
+      podEls.set(p.id, el);
+    }
+    el.dataset.pod = p.id;
+    const parent = p.node ? nodeEls[p.node].grid : qgrid;
+    if (!p.node) queued++;
+    if (el.parentNode !== parent) parent.appendChild(el);
+    el.className = `pod ${p.phase.toLowerCase()} ${p.version === '1.0' ? 'v1' : 'v2'}`;
+    el.querySelector('.h').textContent = p.hash;
+    el.querySelector('.hits').textContent = isReady(p) ? `${p.hits} req` : ({ Pending: 'pending', Creating: 'pulling', Running: 'probing', Terminating: 'stop', Unknown: '' }[p.phase]);
+    const c = isReady(p) ? Math.max(0, Math.min(100, u + (u > 0 ? p.jit : 0))) : 0;
+    const bar = el.querySelector('.cpu > span');
+    bar.style.width = c + '%';
+    bar.className = c >= 95 ? 'b' : c >= 70 ? 'w' : '';
+    el.title = `${podName(p)}\nimage flixstream/web:${p.version}\nstatus ${p.phase}${p.node ? '\nnode ' + p.node : ''}${isReady(p) ? '\nCPU ' + Math.round(c) + '%' : ''}`;
+    seen.add(p.id);
+  }
+  for (const [id, el] of podEls) if (!seen.has(id)) { el.remove(); podEls.delete(id); }
+  queueEl.hidden = queued === 0;
+
+  // service + viewers
+  const svcBox = document.getElementById('svcBox');
+  svcBox.classList.toggle('off', !S.svc);
+  svcBox.classList.toggle('on', S.svc);
+  const rp = readyPods().length;
+  document.getElementById('svcInfo').textContent = S.svc ? `NodePort :30080 · ${rp} endpoint${rp === 1 ? '' : 's'}` : 'Not created yet';
+  document.getElementById('vCount').textContent = fmt(S.viewers);
+  document.getElementById('vNote').textContent = !S.svc ? 'Nobody can reach the site yet' : S.viewers >= 30000 ? 'Premiere rush' : S.viewers > 0 ? 'Browsing and streaming' : 'Site is quiet';
+  document.getElementById('cp-hpa').hidden = !S.hpa;
+
+  // stats
+  setStat('stDesired', S.dep ? S.dep.replicas : '–');
+  setStat('stReady', rp, rp === 0 && S.dep ? 'bad' : '');
+  setStat('stViewers', fmt(S.viewers));
+  const uu = Math.round(u);
+  setStat('stCpu', rp && S.svc ? uu + '%' : '–', uu > 100 ? 'bad' : uu >= 70 ? 'warn' : uu > 0 ? 'ok' : '');
+  setStat('stServed', fmt(S.served), 'ok');
+  setStat('stFailed', fmt(S.failed), S.failed ? 'bad' : '');
+
+  // registry
+  const tags = document.getElementById('regTags');
+  const html = S.reg.length ? S.reg.map(v => `<span class="tag ${v === '1.0' ? 'v1' : 'v2'}" data-v="${v}">flixstream/web:${v}</span>`).join(' ') : '<span class="tag">empty</span>';
+  if (tags.dataset.k !== S.reg.join()) {
+    tags.innerHTML = html;
+    if (S.reg.length) tags.lastElementChild.classList.add('pop');
+    tags.dataset.k = S.reg.join();
+  }
+}
+function setStat(id, val, cls = '') {
+  const el = document.getElementById(id);
+  el.querySelector('b').textContent = val;
+  el.className = 'stat ' + cls;
+}
+
+/* =====================================================================
+   Request animation (canvas)
+   ===================================================================== */
+const stage = document.getElementById('stage');
+const cv = document.getElementById('fx');
+const ctx = cv.getContext('2d');
+let dots = [], bursts = [], acc = 0, lastT = now(), colors = {}, colorsAt = 0;
+function sizeCanvas() {
+  const r = stage.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d);
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+}
+new ResizeObserver(sizeCanvas).observe(stage);
+function readColors() {
+  const cs = getComputedStyle(document.documentElement);
+  ['--accent', '--v2', '--bad', '--ok'].forEach(k => colors[k] = cs.getPropertyValue(k).trim());
+}
+function pt(el, ax = 0.5, ay = 0.5) {
+  const sr = stage.getBoundingClientRect(), r = el.getBoundingClientRect();
+  return { x: r.left - sr.left + r.width * ax, y: r.top - sr.top + r.height * ay };
+}
+const vBox = document.getElementById('viewersBox'), sBox = document.getElementById('svcBox');
+function spawnDot() {
+  const a = pt(vBox, 0.9, 0.55), b = pt(sBox, 0.5, 0.6);
+  const rp = readyPods();
+  let target = null, ok = true;
+  if (!rp.length) ok = false;
+  else {
+    target = rp[S.rr++ % rp.length];
+    const u = util();
+    if (u > 100 && Math.random() < (u - 100) / u) ok = false;
+  }
+  const tEl = target && podEls.get(target.id);
+  const c = tEl ? pt(tEl) : b;
+  dots.push({ a, b, c, t0: now(), ok, pod: target, v2: target && target.version !== '1.0' });
+}
+function frame() {
+  const t = now(), dt = Math.min(0.1, (t - lastT) / 1000);
+  lastT = t;
+  if (t - colorsAt > 1000) { readColors(); colorsAt = t; }
+  if (S.svc && S.viewers > 0) {
+    acc += dt * Math.min(26, Math.max(2, S.viewers / 1600));
+    while (acc >= 1) { acc -= 1; spawnDot(); }
+  }
+  const w = cv.width / (window.devicePixelRatio || 1), h = cv.height / (window.devicePixelRatio || 1);
+  ctx.clearRect(0, 0, w, h);
+  // endpoint lines
+  if (S.svc) {
+    const b = pt(sBox, 0.5, 1);
+    ctx.save();
+    ctx.setLineDash([3, 5]);
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = colors['--accent'];
+    for (const p of readyPods()) {
+      const el = podEls.get(p.id);
+      if (!el || !el.isConnected) continue;
+      const c = pt(el, 0.5, 0);
+      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // dots
+  const DUR = 1100, SPLIT = 0.42;
+  dots = dots.filter(d => {
+    const k = (t - d.t0) / DUR;
+    if (k >= 1) {
+      if (d.ok) { if (d.pod) d.pod.hits++; S.served++; } else { S.failed++; }
+      if (!d.ok) bursts.push({ x: d.pod ? d.c.x : d.b.x, y: d.pod ? d.c.y : d.b.y, t0: t });
+      return false;
+    }
+    let x, y, col = d.v2 ? colors['--v2'] : colors['--accent'];
+    if (k < SPLIT) { const q = k / SPLIT; x = d.a.x + (d.b.x - d.a.x) * q; y = d.a.y + (d.b.y - d.a.y) * q; }
+    else {
+      const q = (k - SPLIT) / (1 - SPLIT);
+      if (!d.pod) { x = d.b.x; y = d.b.y; col = colors['--bad']; }
+      else { x = d.b.x + (d.c.x - d.b.x) * q; y = d.b.y + (d.c.y - d.b.y) * q; if (!d.ok && q > 0.6) col = colors['--bad']; }
+    }
+    ctx.beginPath(); ctx.fillStyle = col; ctx.arc(x, y, 3.6, 0, Math.PI * 2); ctx.fill();
+    return true;
+  });
+  bursts = bursts.filter(bu => {
+    const k = (t - bu.t0) / 500;
+    if (k >= 1) return false;
+    ctx.beginPath(); ctx.strokeStyle = colors['--bad']; ctx.globalAlpha = 1 - k; ctx.lineWidth = 2;
+    ctx.arc(bu.x, bu.y, 4 + k * 12, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+    return true;
+  });
+  requestAnimationFrame(frame);
+}
+
+/* =====================================================================
+   kubectl output generators
+   ===================================================================== */
+const K = {
+  nodes() {
+    const rows = [['NAME', 'STATUS', 'ROLES', 'AGE', 'VERSION'], ['control-plane', 'Ready', 'control-plane', '12d', 'v1.30.2']];
+    S.nodes.forEach(n => rows.push([n.name, n.up ? 'Ready' : 'NotReady', '<none>', '12d', 'v1.30.2']));
+    return table(rows);
+  },
+  pods() {
+    const ph = p => ({ Pending: 'Pending', Creating: 'ContainerCreating', Running: 'Running', Ready: 'Running', Terminating: 'Terminating', Unknown: 'Unknown' }[p.phase]);
+    if (!S.pods.length) return 'No resources found in default namespace.';
+    const rows = [['NAME', 'READY', 'STATUS', 'RESTARTS', 'AGE', 'IP', 'NODE']];
+    S.pods.forEach(p => rows.push([podName(p), isReady(p) ? '1/1' : '0/1', ph(p), 0, age(p.born), p.ip || '<none>', p.node || '<none>']));
+    return table(rows);
+  },
+  deploy() {
+    if (!S.dep) return 'No resources found in default namespace.';
+    const r = readyPods().length, upd = live().filter(p => p.version === S.dep.version).length;
+    return table([['NAME', 'READY', 'UP-TO-DATE', 'AVAILABLE', 'AGE'], ['flixstream-web', `${r}/${S.dep.replicas}`, upd, r, age(S.dep.at)]]);
+  },
+  svc() {
+    const rows = [['NAME', 'TYPE', 'CLUSTER-IP', 'EXTERNAL-IP', 'PORT(S)', 'AGE'], ['kubernetes', 'ClusterIP', '10.96.0.1', '<none>', '443/TCP', '12d']];
+    if (S.svc) rows.push(['flixstream-svc', 'NodePort', '10.96.142.17', '<none>', '80:30080/TCP', age(S.svcAt)]);
+    return table(rows);
+  },
+  ep() {
+    const ips = readyPods().map(p => p.ip + ':80');
+    const shown = ips.slice(0, 3).join(',') + (ips.length > 3 ? ` + ${ips.length - 3} more...` : '');
+    return table([['NAME', 'ENDPOINTS', 'AGE'], ['flixstream-svc', ips.length ? shown : '<none>', age(S.svcAt)]]);
+  },
+  hpa() {
+    if (!S.hpa) return 'No resources found in default namespace.';
+    const u = readyPods().length ? Math.round(util()) + '%' : '<unknown>';
+    return table([['NAME', 'REFERENCE', 'TARGETS', 'MINPODS', 'MAXPODS', 'REPLICAS', 'AGE'], ['flixstream-hpa', 'Deployment/flixstream-web', `cpu: ${u}/50%`, 2, 10, S.dep.replicas, age(S.hpa.at)]]);
+  }
+};
+
+/* =====================================================================
+   Actions (buttons)
+   ===================================================================== */
+async function buildImage(v) {
+  cmd(`docker build -t flixstream/web:${v} .`);
+  await sleep(250);
+  out('[+] Building 6.2s (7/7) FINISHED', 'dim');
+  out(' => [1/2] FROM docker.io/library/nginx:1.27-alpine', 'dim');
+  out(' => [2/2] COPY site/ /usr/share/nginx/html/', 'dim');
+  out(` => => naming to docker.io/flixstream/web:${v}`, 'dim');
+  await sleep(350);
+  cmd(`docker push flixstream/web:${v}`);
+  await sleep(300);
+  out(`${v}: digest: sha256:${[...Array(12)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')}… size: 1782`, 'ok');
+  if (!S.reg.includes(v)) S.reg.push(v);
+  evt('Normal', 'ImagePushed', `flixstream/web:${v} is in the registry`);
+}
+async function apiWrite(file, line) {
+  cmd(`kubectl apply -f ${file}`);
+  flash('cp-api'); await sleep(320);
+  flash('cp-etcd'); await sleep(320);
+  out(line, 'ok');
+}
+function instantDeploy() {
+  if (S.dep) return;
+  S.dep = { replicas: 3, version: '1.0', at: now() };
+  S.revs = 1;
+  NODE_NAMES.forEach(n => { const p = newPod('1.0', 'Ready', n); p.born = now() - 20000; });
+}
+
+const A = {
+  async build10() { await buildImage('1.0'); },
+  nodes() { cmd('kubectl get nodes'); out(K.nodes()); },
+  clusterInfo() {
+    cmd('kubectl cluster-info');
+    out('Kubernetes control plane is running at https://192.168.49.2:8443');
+    out('CoreDNS is running at https://192.168.49.2:8443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy');
+  },
+  async applyDeploy() {
+    await apiWrite('deployment.yaml', 'deployment.apps/flixstream-web created');
+    S.dep = { replicas: 3, version: '1.0', at: now() };
+    S.revs = 1;
+    flash('cp-ctrl');
+    evt('Normal', 'ScalingReplicaSet', 'Scaled up replica set flixstream-web-7d9f8c6b5 to 3');
+  },
+  pods() { cmd('kubectl get pods -o wide'); out(K.pods()); },
+  deploy() { cmd('kubectl get deployment flixstream-web'); out(K.deploy()); },
+  async applySvc() {
+    await apiWrite('service.yaml', 'service/flixstream-svc created');
+    S.svc = true; S.svcAt = now();
+    evt('Normal', 'EndpointsReady', `flixstream-svc now routes to ${readyPods().length} ready pods`);
+  },
+  svc() { cmd('kubectl get svc'); out(K.svc()); },
+  ep() { cmd('kubectl get endpoints flixstream-svc'); out(K.ep()); },
+  open() {
+    cmd('minikube service flixstream-svc --url');
+    out('http://192.168.49.2:30080', 'ok');
+    out('# open it in a browser; refresh a few times and each request may hit a different pod', 'dim');
+  },
+  viewers(btn) { setViewers(+btn.dataset.v); },
+  scale(btn) {
+    if (!S.dep) return;
+    const n = Math.max(1, Math.min(15, S.dep.replicas + (+btn.dataset.d)));
+    cmd(`kubectl scale deployment flixstream-web --replicas=${n}`);
+    out('deployment.apps/flixstream-web scaled', 'ok');
+    if (S.hpa) out('# note: the HPA owns the replica count now and will override this', 'warn');
+    setReplicas(n);
+  },
+  async applyHpa() {
+    await apiWrite('hpa.yaml', 'horizontalpodautoscaler.autoscaling/flixstream-hpa created');
+    S.hpa = { min: 2, max: 10, target: 50, at: now() };
+    evt('Normal', 'HPACreated', 'flixstream-hpa watches CPU of flixstream-web (target 50%)');
+  },
+  hpa() { cmd('kubectl get hpa flixstream-hpa'); out(K.hpa()); },
+  delHpa() {
+    cmd('kubectl delete hpa flixstream-hpa');
+    out('horizontalpodautoscaler.autoscaling "flixstream-hpa" deleted', 'ok');
+    S.hpa = null; S.hpaCalc = null;
+  },
+  killPod() {
+    const rp = readyPods();
+    if (!rp.length) return;
+    const p = rp[Math.floor(Math.random() * rp.length)];
+    cmd(`kubectl delete pod ${podName(p)}`);
+    out(`pod "${podName(p)}" deleted`, 'ok');
+    terminate(p);
+    evt('Normal', 'Killing', `Stopping container web in ${podName(p)}`);
+  },
+  crash() {
+    const n = S.nodes[1];
+    if (!n.up) return;
+    n.up = false;
+    out('# worker-2 lost power (simulated hardware failure)', 'warn');
+    S.pods.filter(p => p.node === n.name && p.phase !== 'Terminating').forEach(p => { p.phase = 'Unknown'; p.t = now(); });
+    flash('cp-ctrl');
+    evt('Warning', 'NodeNotReady', 'Node worker-2 status is now: NodeNotReady');
+  },
+  recover() {
+    const n = S.nodes[1];
+    if (n.up) return;
+    n.up = true;
+    out('# worker-2 is back online and its kubelet reports Ready', 'dim');
+    evt('Normal', 'NodeReady', 'Node worker-2 status is now: NodeReady');
+  },
+  async update() {
+    if (!S.reg.includes('1.1')) await buildImage('1.1');
+    cmd('kubectl set image deployment/flixstream-web web=flixstream/web:1.1');
+    flash('cp-api'); await sleep(300); flash('cp-etcd');
+    out('deployment.apps/flixstream-web image updated', 'ok');
+    S.dep.version = '1.1'; S.rolling = true; S.revs++;
+    evt('Normal', 'ScalingReplicaSet', 'Started rolling update to flixstream/web:1.1');
+  },
+  status() {
+    cmd('kubectl rollout status deployment/flixstream-web');
+    if (S.rolling) {
+      const upd = live().filter(p => p.version === S.dep.version && isReady(p)).length;
+      out(`Waiting for deployment "flixstream-web" rollout to finish: ${upd} of ${S.dep.replicas} updated replicas are available...`);
+    } else out('deployment "flixstream-web" successfully rolled out', 'ok');
+  },
+  history() {
+    cmd('kubectl rollout history deployment/flixstream-web');
+    const rows = [['REVISION', 'CHANGE-CAUSE']];
+    for (let i = 1; i <= S.revs; i++) rows.push([i, '<none>']);
+    out('deployment.apps/flixstream-web\n' + table(rows));
+  },
+  undo() {
+    cmd('kubectl rollout undo deployment/flixstream-web');
+    out('deployment.apps/flixstream-web rolled back', 'ok');
+    S.dep.version = '1.0'; S.rolling = true; S.revs++;
+    flash('cp-api');
+    evt('Normal', 'ScalingReplicaSet', 'Rolling back to flixstream/web:1.0');
+  },
+  reset() {
+    S = fresh(); dots = []; bursts = [];
+    termWelcome(); renderEvents(); renderCluster();
+    go(0);
+  },
+  clearTerm() { termEl.textContent = ''; },
+  next() { go(cur + 1); },
+  prev() { go(cur - 1); }
+};
+
+const EN = {
+  build10: () => !S.reg.includes('1.0'),
+  applyDeploy: () => S.reg.includes('1.0') && !S.dep,
+  deploy: () => !!S.dep,
+  applySvc: () => !!S.dep && !S.svc,
+  ep: () => S.svc, open: () => S.svc, viewers: () => S.svc,
+  scale: () => !!S.dep,
+  applyHpa: () => !!S.dep && !S.hpa,
+  hpa: () => !!S.hpa, delHpa: () => !!S.hpa,
+  killPod: () => readyPods().length > 0,
+  crash: () => S.nodes[1].up, recover: () => !S.nodes[1].up,
+  update: () => !!S.dep && S.dep.version === '1.0' && !S.rolling,
+  status: () => !!S.dep, history: () => !!S.dep,
+  undo: () => !!S.dep && S.dep.version === '1.1' && !S.rolling
+};
+
+function setViewers(v) {
+  S.viewers = v;
+  const r = document.getElementById('viewersRange');
+  if (r) { r.value = v; document.getElementById('viewersOut').textContent = fmt(v); }
+}
+
+/* =====================================================================
+   Lesson steps
+   ===================================================================== */
+const btn = (act, label, cls = '', extra = '') => `<button type="button" class="btn ${cls}" data-act="${act}" ${extra}>${label}</button>`;
+const kc = t => `<span class="mono">${t}</span>`;
+
+function codeBlock(id, title, text, notes = null) {
+  const lines = text.split('\n').map(l => {
+    const key = l.trim();
+    const ann = notes && notes[key];
+    let h = esc(l);
+    if (/^\s*#/.test(l) || /^\s*&lt;!--/.test(h)) h = `<span class="c">${h}</span>`;
+    else h = h.replace(/^(\s*-?\s*)([A-Za-z][\w.-]*)(:)/, '$1<span class="k">$2</span>$3');
+    return `<span class="ln${ann ? ' ann' : ''}" ${ann ? `data-note="${esc(ann)}" data-key="${esc(key)}"` : ''}>${h || ' '}</span>`;
+  }).join('');
+  return `<div class="code" id="code-${id}">
+    <div class="bar"><span>${title}</span><button type="button" class="btn sm" data-copy="${id}">Copy</button></div>
+    <pre>${lines}</pre>
+    ${notes ? `<p class="tip" id="tip-${id}">Click an underlined line to see what it does.</p>` : ''}
+  </div>`;
+}
+const RAW = {};
+
+const STEPS = [
+  {
+    short: 'Scenario',
+    html: () => `
+      <div class="head"><span class="eyebrow">Step 1 of 9 · Scenario</span><h2>9 PM premiere night at FlixStream</h2></div>
+      <div class="callout story">
+        <span class="t">The story</span>
+        <p>Think of Netflix on the night a big new season drops. FlixStream is our Netflix-style site. On a normal evening about <b>6,000</b> people browse it. At 9 PM a new season premieres and traffic jumps to <b>40,000</b>. Then, mid-show, one of the servers dies.</p>
+        <p>Running one copy of the website on one machine would crash. Kubernetes lets us run many copies, put one address in front of them, add copies when traffic rises, and replace copies that die, automatically.</p>
+      </div>
+      <div class="tbl"><table class="map">
+        <thead><tr><th>In the FlixStream story</th><th>Kubernetes object</th><th>Its job</th></tr></thead>
+        <tbody>
+          <tr><td>The packaged website</td><td><code>Container image</code></td><td>App + web server + config in one file</td></tr>
+          <tr><td>One running copy of the site</td><td><code>Pod</code></td><td>Runs the container, gets its own IP</td></tr>
+          <tr><td>"Always keep 3 copies running"</td><td><code>Deployment</code></td><td>Desired state, self-healing, rolling updates</td></tr>
+          <tr><td>The one address viewers use</td><td><code>Service</code></td><td>Stable IP/DNS and load balancing</td></tr>
+          <tr><td>Extra copies for the premiere</td><td><code>HorizontalPodAutoscaler</code></td><td>Automatic scaling on CPU</td></tr>
+          <tr><td>The servers in the data centre</td><td><code>Nodes</code></td><td>Machines that run the pods</td></tr>
+          <tr><td>The brain that decides everything</td><td><code>Control plane</code></td><td>API server, scheduler, controllers, etcd</td></tr>
+        </tbody>
+      </table></div>
+      <div class="callout">
+        <span class="t">How to use this page</span>
+        <ol>
+          <li>Go through the steps in order. Each step explains one idea and gives you buttons.</li>
+          <li>Each button runs the real command against the simulated cluster on the right. The terminal shows the command and the output you would see.</li>
+          <li>Watch the cluster: pods appear on nodes, dots are viewer requests travelling through the Service.</li>
+        </ol>
+      </div>
+      <div class="callout note"><span class="t">Software for the real lab</span><p>Docker, kubectl and a cluster: minikube (used in the commands here), kind, or a cloud cluster. Step 9 lists every command to run it on your own machine.</p></div>`
+  },
+  {
+    short: 'Image',
+    html: () => `
+      <div class="head"><span class="eyebrow">Step 2 of 9 · Containerize</span><h2>Package FlixStream as a container image</h2></div>
+      <p class="lead">Kubernetes does not run source code. It runs <b>container images</b>. We put the FlixStream web page inside an nginx image and give it a version tag, <code>1.0</code>.</p>
+      ${codeBlock('index', 'site/index.html', INDEX_HTML)}
+      ${codeBlock('docker', 'Dockerfile', DOCKERFILE)}
+      <div class="actions">${btn('build10', kc('docker build') + ' + ' + kc('docker push'), 'primary')}</div>
+      <div class="callout watch"><span class="t">Watch</span><p>The terminal shows the build. When the push finishes, <code>flixstream/web:1.0</code> appears in the Registry at the top of the cluster panel. Every node can now pull it.</p></div>
+      <div class="callout"><span class="t">Why tag versions?</span><p>Images never change once built. A new release gets a new tag (1.1, 1.2). That is what makes rolling updates and rollbacks possible in step 8.</p></div>`
+  },
+  {
+    short: 'Cluster',
+    html: () => `
+      <div class="head"><span class="eyebrow">Step 3 of 9 · The cluster</span><h2>Meet the cluster that will run FlixStream</h2></div>
+      <p class="lead">A cluster has a <b>control plane</b> that makes decisions and <b>worker nodes</b> that run the pods. Ours has 3 workers, each with room for ${CAP} FlixStream pods.</p>
+      <div class="comp-list">
+        ${['api', 'etcd', 'sched', 'ctrl', 'node', 'pod'].map(k => `<button type="button" data-comp="${k}"><b>${COMP[k][0]}</b><span>${COMP[k][1]}</span></button>`).join('')}
+      </div>
+      <div class="actions">${btn('nodes', kc('kubectl get nodes'), 'primary')}${btn('clusterInfo', kc('kubectl cluster-info'))}</div>
+      <div class="callout watch"><span class="t">Watch</span><p>All three workers report <b>Ready</b>. Tap any part of the cluster on the right to read what it does.</p></div>`
+  },
+  {
+    short: 'Deployment',
+    html: () => `
+      <div class="head"><span class="eyebrow">Step 4 of 9 · Deployment manifest</span><h2>Ask for 3 copies of FlixStream</h2></div>
+      <p class="lead">A Deployment says <i>what</i> we want (image <code>flixstream/web:1.0</code>, 3 replicas). We never say <i>where</i> to run it; the scheduler decides.</p>
+      ${codeBlock('deploy', 'deployment.yaml', DEPLOY_YAML, DEPLOY_NOTES)}
+      <div class="actions">${btn('applyDeploy', kc('kubectl apply -f deployment.yaml'), 'primary')}${btn('pods', kc('kubectl get pods -o wide'))}${btn('deploy', kc('kubectl get deployment'))}</div>
+      <div class="callout watch"><span class="t">Watch the chain of events</span>
+        <ol>
+          <li><b>kube-apiserver</b> receives the YAML and stores it in <b>etcd</b>.</li>
+          <li>The <b>controller-manager</b> creates a ReplicaSet, which creates 3 pods (dashed: Pending).</li>
+          <li>The <b>scheduler</b> spreads them across the workers.</li>
+          <li>Each node's kubelet pulls the image (striped: ContainerCreating), starts it, and the readiness probe passes (filled: Ready).</li>
+        </ol>
+      </div>`
+  },
+  {
+    short: 'Service',
+    html: () => `
+      <div class="head"><span class="eyebrow">Step 5 of 9 · Service manifest</span><h2>Give viewers one address and balance the load</h2></div>
+      <p class="lead">Pods come and go and their IPs change. Viewers need one fixed address. A <b>Service</b> finds pods by label and spreads requests across the Ready ones.</p>
+      ${codeBlock('svc', 'service.yaml', SVC_YAML, SVC_NOTES)}
+      <div class="actions">${btn('applySvc', kc('kubectl apply -f service.yaml'), 'primary')}${btn('viewers', 'Open the site to 6,000 viewers', '', 'data-v="6000"')}</div>
+      <div class="actions">${btn('svc', kc('kubectl get svc'))}${btn('ep', kc('kubectl get endpoints'))}${btn('open', kc('minikube service --url'))}</div>
+      <div class="callout watch"><span class="t">Watch</span><p>Dots are viewer requests. They enter through <b>flixstream-svc</b> and fan out to the pods along the dashed endpoint lines. The <code>req</code> counter on each pod climbs at about the same rate: that is load balancing.</p></div>
+      <div class="callout"><span class="t">Good to know</span><p>The simulation sends requests in turn (round-robin). Real kube-proxy in iptables mode picks a pod at random for each connection, which also evens out over many requests.</p></div>`
+  },
+  {
+    short: 'Scaling',
+    html: () => `
+      <div class="head"><span class="eyebrow">Step 6 of 9 · Scaling</span><h2>Survive the 9 PM premiere</h2></div>
+      <h3>A. Scale by hand</h3>
+      <div class="repl">${btn('scale', '−', '', 'data-d="-1" aria-label="Remove one replica"')}<output id="repNow">3</output>${btn('scale', '+', '', 'data-d="1" aria-label="Add one replica"')}<span class="mono" style="color:var(--muted)">kubectl scale --replicas=N</span></div>
+      <div class="rangeRow">
+        <label for="viewersRange"><span>Viewers online</span><span class="mono" id="viewersOut">0</span></label>
+        <input type="range" id="viewersRange" min="0" max="60000" step="500" value="0">
+        <div class="actions">${btn('viewers', 'Quiet: 2,000', 'sm', 'data-v="2000"')}${btn('viewers', 'Evening: 6,000', 'sm', 'data-v="6000"')}${btn('viewers', '9 PM premiere: 40,000', 'sm', 'data-v="40000"')}${btn('viewers', 'Goes viral: 60,000', 'sm', 'data-v="60000"')}</div>
+      </div>
+      <div class="callout note"><span class="t">Try this first</span><p>Without an autoscaler, click <b>9 PM premiere</b>. Average CPU goes far above 100%, pods turn red and the <b>Failed</b> counter climbs. Nobody can add pods fast enough by hand at 9 PM.</p></div>
+      <h3>B. Let the HorizontalPodAutoscaler do it</h3>
+      ${codeBlock('hpa', 'hpa.yaml', HPA_YAML, HPA_NOTES)}
+      <div class="actions">${btn('applyHpa', kc('kubectl apply -f hpa.yaml'), 'primary')}${btn('hpa', kc('kubectl get hpa'))}${btn('delHpa', kc('kubectl delete hpa'), 'sm')}</div>
+      <div class="calc" id="hpaCalc">Apply the HPA to see its calculation here.</div>
+      <div class="callout watch"><span class="t">Watch</span><p>During the premiere the HPA raises the replica count until CPU is back near 50%. Move the slider back to 6,000 and, after a short wait, it removes the extra pods (never below 2). At 60,000 it stops at 10 pods: <code>maxReplicas</code> is a hard ceiling.</p></div>
+      <div class="callout"><span class="t">Real timings</span><p>The real HPA checks every 15 s and waits 5 minutes before scaling down, so a short dip does not remove pods. Here everything is sped up. In a real cluster it also needs <code>metrics-server</code> and a CPU <code>request</code> on the container.</p></div>`
+  },
+  {
+    short: 'High availability',
+    html: () => `
+      <div class="head"><span class="eyebrow">Step 7 of 9 · High availability</span><h2>Break things on purpose</h2></div>
+      <p class="lead">The Deployment keeps comparing <i>desired</i> pods with <i>actual</i> pods. Whenever they differ, it fixes the gap. The Service sends traffic only to Ready pods, so viewers do not notice.</p>
+      <div class="actions">${btn('killPod', kc('kubectl delete pod …'), 'danger')}${btn('crash', 'Crash worker-2', 'danger')}${btn('recover', 'Bring worker-2 back')}${btn('pods', kc('kubectl get pods -o wide'))}${btn('nodes', kc('kubectl get nodes'))}</div>
+      <div class="callout watch"><span class="t">Watch</span>
+        <ul>
+          <li><b>Delete a pod:</b> it fades out and the ReplicaSet immediately creates a replacement with a new name.</li>
+          <li><b>Crash worker-2:</b> the node turns NotReady, its pods show <b>?</b> and stop receiving traffic. Shortly after, they are evicted and recreated on worker-1 and worker-3.</li>
+          <li><b>Bring it back:</b> worker-2 is Ready again but stays empty. Kubernetes does not move running pods back; new pods will land there.</li>
+        </ul>
+      </div>
+      <div class="callout note"><span class="t">Check</span><p>Keep at least 6,000 viewers on. The <b>Failed</b> counter should barely move while you break things, because there is always at least one other Ready pod.</p></div>
+      <div class="callout"><span class="t">Real timings</span><p>A real cluster marks a node NotReady after about 40 s and evicts its pods after about 5 minutes by default. The simulation compresses that into a few seconds.</p></div>`
+  },
+  {
+    short: 'Rolling update',
+    html: () => `
+      <div class="head"><span class="eyebrow">Step 8 of 9 · Rolling update and rollback</span><h2>Ship FlixStream 1.1 with zero downtime</h2></div>
+      <p class="lead">The new release has a redesigned home page. Because the Deployment uses <code>RollingUpdate</code> with <code>maxSurge: 1</code> and <code>maxUnavailable: 0</code>, Kubernetes adds one new pod, waits for it to be Ready, then removes one old pod, and repeats.</p>
+      ${codeBlock('upd', 'commands', `# build and push the new version
+docker build -t flixstream/web:1.1 .
+docker push flixstream/web:1.1
+# point the Deployment at it
+kubectl set image deployment/flixstream-web web=flixstream/web:1.1
+kubectl rollout status deployment/flixstream-web
+# if something is wrong
+kubectl rollout undo deployment/flixstream-web`)}
+      <div class="actions">${btn('update', 'Release 1.1 (' + kc('kubectl set image') + ')', 'primary')}${btn('status', kc('kubectl rollout status'))}${btn('history', kc('kubectl rollout history'))}${btn('undo', kc('kubectl rollout undo'), 'danger')}</div>
+      <div class="callout watch"><span class="t">Watch</span><p>Blue v1.0 pods are swapped one at a time for violet v1.1 pods. <b>Ready pods</b> never drops below the desired count and requests keep flowing. <b>Undo</b> runs the same process backwards.</p></div>`
+  },
+  {
+    short: 'Result & viva',
+    html: () => `
+      <div class="head"><span class="eyebrow">Step 9 of 9 · Result</span><h2>Observations, commands and viva</h2></div>
+      <div class="callout watch"><span class="t">Result</span><p>The FlixStream web application was containerized and deployed on a Kubernetes cluster using a Deployment and a Service manifest. The Service load-balanced requests across replicas, the HorizontalPodAutoscaler scaled the Deployment between 2 and 10 pods based on CPU, failed pods and nodes were replaced automatically, and a new version was rolled out and rolled back without downtime.</p></div>
+      <h3>Observation table</h3>
+      <div class="tbl"><table class="map">
+        <thead><tr><th>Activity</th><th>Command</th><th>Expected observation</th></tr></thead>
+        <tbody>
+          <tr><td>Deploy</td><td><code>kubectl apply -f deployment.yaml</code></td><td>3 pods Running, spread over the nodes</td></tr>
+          <tr><td>Expose</td><td><code>kubectl apply -f service.yaml</code></td><td>NodePort 30080, 3 endpoints</td></tr>
+          <tr><td>Manual scale</td><td><code>kubectl scale deploy flixstream-web --replicas=5</code></td><td>2 more pods created</td></tr>
+          <tr><td>Autoscale</td><td><code>kubectl apply -f hpa.yaml</code> + load</td><td>Replicas rise when CPU &gt; 50%, fall later</td></tr>
+          <tr><td>Self-healing</td><td><code>kubectl delete pod &lt;name&gt;</code></td><td>New pod with a new name appears</td></tr>
+          <tr><td>Rolling update</td><td><code>kubectl set image …:1.1</code></td><td>Pods replaced one by one, no downtime</td></tr>
+          <tr><td>Rollback</td><td><code>kubectl rollout undo …</code></td><td>Back to 1.0, new revision in history</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Run it on your own machine (minikube)</h3>
+      ${codeBlock('real', 'terminal', `minikube start --nodes 3
+minikube addons enable metrics-server
+docker build -t flixstream/web:1.0 .
+minikube image load flixstream/web:1.0
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+kubectl get pods -o wide
+minikube service flixstream-svc --url
+kubectl apply -f hpa.yaml
+# second terminal: generate load
+kubectl run load --rm -it --image=busybox:1.36 --restart=Never -- /bin/sh -c "while true; do wget -q -O- http://flixstream-svc; done"
+# first terminal: watch it scale
+kubectl get hpa -w
+kubectl get pods -w`)}
+      <div class="callout note"><span class="t">Tips</span><p><code>minikube image load</code> copies your local image to every node, so no registry account is needed. If pods show <code>ErrImagePull</code>, check the image name and tag. If the HPA shows <code>&lt;unknown&gt;</code>, wait a minute for metrics-server.</p></div>
+      <h3>Viva questions</h3>
+      ${[
+        ['What is the difference between a Pod, a ReplicaSet and a Deployment?', 'A Pod runs one or more containers. A ReplicaSet keeps a fixed number of identical pods running. A Deployment manages ReplicaSets and adds rolling updates and rollback on top.'],
+        ['Why do we need a Service when every pod already has an IP?', 'Pod IPs change whenever pods are replaced or scaled. A Service gives one stable virtual IP and DNS name, and load-balances across whichever pods currently match its selector and are Ready.'],
+        ['Compare ClusterIP, NodePort and LoadBalancer.', 'ClusterIP is reachable only inside the cluster. NodePort also opens a port (30000-32767) on every node. LoadBalancer additionally asks the cloud provider for an external load balancer with a public IP.'],
+        ['How does the HPA decide how many replicas to run?', 'desiredReplicas = ceil(currentReplicas × currentUtilization ÷ targetUtilization), kept between minReplicas and maxReplicas. It needs metrics-server and CPU requests on the pods.'],
+        ['What happens when a worker node fails?', 'The node becomes NotReady, the Service stops sending traffic to its pods, and after the eviction timeout the pods are deleted and the ReplicaSet recreates them on healthy nodes.'],
+        ['What do maxSurge and maxUnavailable control?', 'During a rolling update, maxSurge is how many extra pods may exist above the desired count, and maxUnavailable is how many may be unavailable. 1 and 0 give a zero-downtime update.'],
+        ['Readiness probe vs liveness probe?', 'A failing readiness probe removes the pod from Service endpoints (no traffic) but does not restart it. A failing liveness probe makes the kubelet restart the container.'],
+        ['How do you roll back a bad release?', 'kubectl rollout undo deployment/flixstream-web (optionally --to-revision=N). kubectl rollout history lists the revisions.']
+      ].map(([q, a]) => `<details class="qa"><summary>${q}</summary><p>${a}</p></details>`).join('')}`
+  }
+];
+RAW.index = INDEX_HTML; RAW.docker = DOCKERFILE; RAW.deploy = DEPLOY_YAML; RAW.svc = SVC_YAML; RAW.hpa = HPA_YAML;
+RAW.upd = `docker build -t flixstream/web:1.1 .
+docker push flixstream/web:1.1
+kubectl set image deployment/flixstream-web web=flixstream/web:1.1
+kubectl rollout status deployment/flixstream-web
+kubectl rollout undo deployment/flixstream-web`;
+
+/* ---------- navigation ---------- */
+const rail = document.getElementById('rail');
+const lesson = document.getElementById('lesson');
+let cur = 0, maxSeen = 0, busy = false;
+rail.innerHTML = STEPS.map((s, i) => `<button type="button" data-step="${i}"><span class="n">${i + 1}</span>${s.short}</button>`).join('');
+
+function ensureUpTo(i) {
+  if (i >= 3 && !S.reg.includes('1.0')) S.reg.push('1.0');
+  if (i >= 4 && !S.dep) instantDeploy();
+  if (i >= 5 && !S.svc) { S.svc = true; S.svcAt = now(); }
+  if (i >= 5 && S.viewers === 0) S.viewers = 6000;
+}
+function go(i) {
+  i = Math.max(0, Math.min(STEPS.length - 1, i));
+  ensureUpTo(i);
+  cur = i; maxSeen = Math.max(maxSeen, i);
+  lesson.innerHTML = STEPS[i].html() + `<div class="navrow">${i > 0 ? btn('prev', '← Previous') : '<span></span>'}${i < STEPS.length - 1 ? btn('next', 'Next: ' + STEPS[i + 1].short + ' →', 'primary') : ''}</div>`;
+  rail.querySelectorAll('button').forEach((b, k) => { b.classList.toggle('cur', k === i); b.classList.toggle('done', k < i); });
+  rail.children[i].scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const r = document.getElementById('viewersRange');
+  if (r) {
+    r.value = S.viewers;
+    document.getElementById('viewersOut').textContent = fmt(S.viewers);
+    r.addEventListener('input', () => setViewers(+r.value));
+  }
+  syncLesson();
+  try { localStorage.setItem('k8slab-step', String(i)); } catch (e) {}
+}
+function syncLesson() {
+  lesson.querySelectorAll('[data-act]').forEach(b => {
+    const f = EN[b.dataset.act];
+    b.disabled = busy || (f ? !f() : false);
+  });
+  const rep = document.getElementById('repNow');
+  if (rep) rep.textContent = S.dep ? S.dep.replicas : '–';
+  const calc = document.getElementById('hpaCalc');
+  if (calc) {
+    const c = S.hpaCalc;
+    if (!S.hpa) calc.innerHTML = 'Apply the HPA to see its calculation here.';
+    else if (!c) calc.innerHTML = 'Waiting for the first metrics…';
+    else calc.innerHTML = `CPU now <b>${Math.round(c.u)}%</b> of request, target <b>50%</b><br>desired = ceil(${c.r} × ${Math.round(c.u)}% ÷ 50%) = <b>${c.raw}</b>${c.within ? ' (within 10% of target: no change)' : ''}<br>kept between 2 and 10 → <b>${c.desired}</b> replica${c.desired === 1 ? '' : 's'}${c.raw > 10 ? ' · <span style="color:var(--bad)">maxReplicas reached, pods are overloaded</span>' : ''}`;
+  }
+}
+
+/* ---------- events wiring ---------- */
+document.addEventListener('click', async e => {
+  const step = e.target.closest('[data-step]');
+  if (step) { go(+step.dataset.step); return; }
+  const a = e.target.closest('[data-act]');
+  if (a && !a.disabled) {
+    const f = A[a.dataset.act];
+    if (f) { busy = true; syncLesson(); try { await f(a); } finally { busy = false; syncLesson(); renderCluster(); } }
+    return;
+  }
+  const copy = e.target.closest('[data-copy]');
+  if (copy) {
+    const text = RAW[copy.dataset.copy] || document.querySelector(`#code-${copy.dataset.copy} pre`).innerText;
+    try { await navigator.clipboard.writeText(text); copy.textContent = 'Copied'; }
+    catch (err) {
+      const pre = document.querySelector(`#code-${copy.dataset.copy} pre`);
+      const sel = window.getSelection(), rg = document.createRange();
+      rg.selectNodeContents(pre); sel.removeAllRanges(); sel.addRange(rg);
+      copy.textContent = 'Selected, press Ctrl+C';
+    }
+    setTimeout(() => copy.textContent = 'Copy', 1800);
+    return;
+  }
+  const ln = e.target.closest('.ln.ann');
+  if (ln) {
+    const box = ln.closest('.code');
+    box.querySelectorAll('.ln.on').forEach(x => x.classList.remove('on'));
+    ln.classList.add('on');
+    box.querySelector('.tip').innerHTML = `<b>${esc(ln.dataset.key)}</b><br>${esc(ln.dataset.note)}`;
+    return;
+  }
+  const comp = e.target.closest('[data-comp]');
+  if (comp) {
+    const k = comp.dataset.comp;
+    const info = document.getElementById('info');
+    if (k === 'pod') {
+      const p = S.pods.find(x => x.id === +comp.dataset.pod);
+      info.innerHTML = p ? `<b>${podName(p)}</b> · ${p.phase === 'Ready' ? 'Running, Ready' : p.phase} · image flixstream/web:${p.version}${p.node ? ' · on ' + p.node : ''}${p.ip ? ' · IP ' + p.ip : ''} · ${p.hits} requests served. ${COMP.pod[1]}` : COMP.pod[1];
+    } else if (k === 'node') {
+      const n = S.nodes.find(x => x.name === comp.dataset.node);
+      info.innerHTML = `<b>${n.name}</b> · ${n.up ? 'Ready' : 'NotReady'} · ${nodeCount(n.name)}/${CAP} pods. ${COMP.node[1]}`;
+    } else info.innerHTML = `<b>${COMP[k][0]}</b> · ${COMP[k][1]}`;
+  }
+});
+
+/* ---------- main loop ---------- */
+let lastHpa = 0;
+setInterval(() => {
+  tickPods();
+  reconcile();
+  if (now() - lastHpa > 2500) { lastHpa = now(); hpaLoop(); }
+  renderCluster();
+  syncLesson();
+}, 200);
+setInterval(renderEvents, 1000);
+
+termWelcome();
+let start = 0;
+try { const s = parseInt(localStorage.getItem('k8slab-step'), 10); if (s > 0 && s < STEPS.length) start = s; } catch (e) {}
+go(start);
+renderCluster();
+readColors();
+sizeCanvas();
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
